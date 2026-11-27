@@ -40,9 +40,12 @@ var MESSAGE =
 var TOPIC_MEMO = "Enoch verification records";
 var DEFAULT_PROJECT_ID = "30e6b7be7e28aa8c55317773c9534d57";
 var PROJECT_ID_PLACEHOLDER = "REPLACE_WITH_YOUR_WALLETCONNECT_CLOUD_PROJECT_ID";
-var MIRROR = {
-  mainnet: "https://mainnet-public.mirrornode.hedera.com",
-  testnet: "https://testnet-public.mirrornode.hedera.com",
+var MIRRORS = {
+  mainnet: ["https://mainnet-public.mirrornode.hedera.com"],
+  testnet: [
+    "https://testnet-public.mirrornode.hedera.com",
+    "https://testnet.mirrornode.hedera.com",
+  ],
 };
 var HASHSCAN = {
   mainnet: "https://hashscan.io/mainnet",
@@ -97,13 +100,21 @@ function txIdToDashed(txIdString) {
 
 async function fetchChargedFee(txIdString) {
   try {
-    var url = MIRROR[network] + "/api/v1/transactions/" + txIdToDashed(txIdString);
-    var res = await fetch(url);
-    if (!res.ok) return "not shown yet, check HashScan";
-    var data = await res.json();
-    var tx = data.transactions && data.transactions[0];
-    if (!tx || typeof tx.charged_fee !== "number") return "not shown yet, check HashScan";
-    return (tx.charged_fee / 100000000).toFixed(8) + " HBAR";
+    var hosts = MIRRORS[network];
+    for (var i = 0; i < hosts.length; i++) {
+      try {
+        var url = hosts[i] + "/api/v1/transactions/" + txIdToDashed(txIdString);
+        var res = await fetch(url);
+        if (!res.ok) continue;
+        var data = await res.json();
+        var tx = data.transactions && data.transactions[0];
+        if (!tx || typeof tx.charged_fee !== "number") return "not shown yet, check HashScan";
+        return (tx.charged_fee / 100000000).toFixed(8) + " HBAR";
+      } catch (e) {
+        // Try the next mirror host.
+      }
+    }
+    return "not shown yet, check HashScan";
   } catch (e) {
     return "not shown yet, check HashScan";
   }
@@ -128,17 +139,23 @@ async function connectWallet() {
   $("connectBtn").disabled = true;
   try {
     var ledgerId = network === "testnet" ? LedgerId.TESTNET : LedgerId.MAINNET;
-    await sdk.init(
-      projectId,
-      {
-        name: "Enoch signing page",
-        description: "Create one HCS topic and submit one message, signing in HashPack.",
-        url: window.location.href,
-        icons: [],
-      },
-      ledgerId
-    );
-    await sdk.connect();
+    try {
+      await sdk.init(
+        projectId,
+        {
+          name: "Enoch signing page",
+          description: "Create one HCS topic and submit one message, signing in HashPack.",
+          url: window.location.href,
+          icons: [],
+        },
+        ledgerId
+      );
+      await sdk.connect();
+    } catch (e) {
+      throw new Error(
+        "WalletConnect step failed: " + (e && e.message ? e.message : String(e))
+      );
+    }
     var info = sdk.getAccountInfo();
     if (!info || !info.accountId) throw new Error("Connected, but no account was returned by the wallet.");
     if (info.network && info.network.toString() !== ledgerId.toString()) {
@@ -152,9 +169,25 @@ async function connectWallet() {
     }
     accountId = info.accountId;
     var balance = await sdk.getAccountBalance();
-    var res = await fetch(MIRROR[network] + "/api/v1/accounts/" + accountId);
-    if (!res.ok) throw new Error("Could not read the account record from the mirror node.");
-    var acct = await res.json();
+    var acct = null;
+    var mirrorError = null;
+    var hosts = MIRRORS[network];
+    for (var i = 0; i < hosts.length; i++) {
+      try {
+        var res = await fetch(hosts[i] + "/api/v1/accounts/" + accountId);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        acct = await res.json();
+        break;
+      } catch (e) {
+        mirrorError = e;
+      }
+    }
+    if (!acct) {
+      throw new Error(
+        "Mirror node step failed: could not read the account record. " +
+          (mirrorError && mirrorError.message ? mirrorError.message : String(mirrorError))
+      );
+    }
     if (!acct.key || typeof acct.key.key !== "string") {
       throw new Error("The mirror node record for this account has no public key. Cannot build the topic.");
     }
@@ -258,23 +291,30 @@ async function submitMessage() {
     var seq = receipt && receipt.topicSequenceNumber ? receipt.topicSequenceNumber.toString() : null;
     var consensusTs = null;
     try {
-      var url =
-        MIRROR[network] + "/api/v1/topics/" + topicId + "/messages?limit=1&order=desc";
-      var res = await fetch(url);
-      if (res.ok) {
-        var data = await res.json();
-        var msg = data.messages && data.messages[0];
-        if (msg) {
-          seq = String(msg.sequence_number);
-          consensusTs = msg.consensus_timestamp;
-          if (msg.message) {
-            var decoded = atob(msg.message);
-            if (decoded !== MESSAGE) {
-              throw new Error(
-                "The message on the ledger does not match the message shown on this page. Do not trust this result."
-              );
+      var hosts = MIRRORS[network];
+      for (var i = 0; i < hosts.length; i++) {
+        try {
+          var url =
+            hosts[i] + "/api/v1/topics/" + topicId + "/messages?limit=1&order=desc";
+          var res = await fetch(url);
+          if (!res.ok) continue;
+          var data = await res.json();
+          var msg = data.messages && data.messages[0];
+          if (msg) {
+            seq = String(msg.sequence_number);
+            consensusTs = msg.consensus_timestamp;
+            if (msg.message) {
+              var decoded = atob(msg.message);
+              if (decoded !== MESSAGE) {
+                throw new Error(
+                  "The message on the ledger does not match the message shown on this page. Do not trust this result."
+                );
+              }
             }
           }
+          break;
+        } catch (e) {
+          // Try the next mirror host.
         }
       }
     } catch (e) {
