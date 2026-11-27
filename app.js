@@ -349,14 +349,17 @@ async function loadExistingTopic() {
     var hosts = MIRRORS[network];
     var rec = null;
     var lastErr = null;
-    for (var i = 0; i < hosts.length; i++) {
-      try {
-        var res = await fetch("https://" + hosts[i] + "/api/v1/topics/" + raw);
-        if (!res.ok) throw new Error("Mirror node returned " + res.status + ".");
-        rec = await res.json();
-        break;
-      } catch (e) {
-        lastErr = e;
+    for (var attempt = 0; attempt < 2 && !rec; attempt++) {
+      if (attempt > 0) await new Promise(function (r) { setTimeout(r, 1500); });
+      for (var i = 0; i < hosts.length; i++) {
+        try {
+          var res = await fetch(hosts[i] + "/api/v1/topics/" + raw);
+          if (!res.ok) throw new Error("Mirror node returned " + res.status + ".");
+          rec = await res.json();
+          break;
+        } catch (e) {
+          lastErr = e;
+        }
       }
     }
     if (!rec) throw new Error("Could not read the topic from the public record. " + (lastErr ? lastErr.message : ""));
