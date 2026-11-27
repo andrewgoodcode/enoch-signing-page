@@ -396,7 +396,17 @@ async function createTopic() {
     var tx = new HashgraphSDK.TopicCreateTransaction()
       .setTopicMemo(TOPIC_MEMO)
       .setAdminKey(accountPublicKey)
-      .setSubmitKey(accountPublicKey);
+      .setSubmitKey(accountPublicKey)
+      // Freeze needs two things the wallet signer does not supply. The
+      // auto-renew account must be set explicitly as a string: freezeWith
+      // otherwise defaults it from the transaction ID, whose account ID
+      // comes from the wallet-connect copy of the SDK, fails the window
+      // copy's instanceof check, and is passed to AccountId.fromString,
+      // which throws "startsWith is not a function" on the object. The
+      // node account IDs must be set explicitly too: the signer only sets
+      // the transaction ID, and freezeWith(null) throws without a node.
+      .setAutoRenewAccountId(accountId)
+      .setNodeAccountIds([HashgraphSDK.AccountId.fromString("0.0.3")]);
     // Do not set the transaction ID here. The wallet signer sets it during
     // freezeWithSigner, and setting it first locks the ID list, so the
     // signer then throws "list is locked" before any request reaches the
@@ -441,7 +451,11 @@ async function submitMessage() {
     stage = "building the transaction";
     var tx = new HashgraphSDK.TopicMessageSubmitTransaction()
       .setTopicId(HashgraphSDK.TopicId.fromString(topicId))
-      .setMessage(MESSAGE);
+      .setMessage(MESSAGE)
+      // The wallet signer sets only the transaction ID, never node account
+      // IDs, and freezeWith(null) throws without one. Node 0.0.3 is a
+      // consensus node on both testnet and mainnet.
+      .setNodeAccountIds([HashgraphSDK.AccountId.fromString("0.0.3")]);
     // Do not set the transaction ID here, for the same reason as in
     // createTopic: the wallet signer sets it, and setting it first makes the
     // signer throw "list is locked".
