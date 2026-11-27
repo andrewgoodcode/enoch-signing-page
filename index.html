@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Enoch signing page</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 720px; margin: 0 auto; padding: 24px 16px 64px; line-height: 1.5; color: #1a1a1a; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; border-top: 1px solid #ccc; padding-top: 1rem; }
+  .warn { background: #fff4e0; border: 1px solid #d9a441; padding: 12px; border-radius: 6px; }
+  .ok { background: #e8f5e9; border: 1px solid #66bb6a; padding: 12px; border-radius: 6px; }
+  .err { background: #fdecea; border: 1px solid #e57373; padding: 12px; border-radius: 6px; }
+  pre, code { background: #f4f4f4; border-radius: 4px; }
+  pre { padding: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  button { font-size: 1rem; padding: 12px 20px; min-height: 44px; border-radius: 6px; border: 1px solid #333; background: #1a1a1a; color: #fff; cursor: pointer; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.secondary { background: #fff; color: #1a1a1a; }
+  input[type="text"] { width: 100%; padding: 10px; font-size: 1rem; box-sizing: border-box; }
+  label { font-weight: 600; display: block; margin: 8px 0 4px; }
+  .field { margin: 8px 0; }
+  .detail { margin: 4px 0; }
+  .muted { color: #555; font-size: 0.9rem; }
+  a { color: #0b5fff; }
+</style>
+</head>
+<body>
+<h1>Enoch signing page</h1>
+
+<p>This page does one job: create a Hedera topic and submit one message to it. Signing happens in your HashPack wallet. This page never asks for a seed phrase or a private key, and it has no backend. Nothing is submitted until you tap a button here and approve the transaction in HashPack.</p>
+
+<div class="warn">
+<p><strong>Read before you tap anything.</strong> Use Testnet first with a throwaway testnet account. Switch to Mainnet only when the testnet run works and the message below is the one you approved. On Mainnet this spends about $0.01 to create the topic and about $0.0001 to submit the message, paid from the connected wallet.</p>
+</div>
+
+<h2>Setup</h2>
+
+<div class="field">
+<label for="projectId">WalletConnect Cloud project ID</label>
+<input type="text" id="projectId" placeholder="REPLACE_WITH_YOUR_WALLETCONNECT_CLOUD_PROJECT_ID" autocomplete="off">
+<p class="muted">A free WalletConnect Cloud project ID is needed for the page to talk to your wallet. Get one at cloud.walletconnect.com. It is a public identifier, not a secret. The page saves it in this browser only, so you do not have to paste it again.</p>
+</div>
+
+<div class="field">
+<label>Network</label>
+<label><input type="radio" name="network" value="mainnet" checked> Mainnet</label>
+<label><input type="radio" name="network" value="testnet"> Testnet</label>
+<p class="muted">Testnet is for testing only. Mainnet is the real run, and it spends real HBAR.</p>
+</div>
+
+<p><button id="connectBtn">Connect HashPack</button>
+<button id="disconnectBtn" class="secondary" disabled>Disconnect</button></p>
+
+<div id="accountBox" class="ok" style="display:none">
+<p class="detail"><strong>Connected account:</strong> <span id="accountId"></span></p>
+<p class="detail"><strong>Network:</strong> <span id="networkName"></span></p>
+<p class="detail"><strong>Balance:</strong> <span id="balance"></span> HBAR</p>
+<p class="detail"><strong>Account public key:</strong></p>
+<pre id="publicKey"></pre>
+<p class="muted">The public key above comes from the public mirror node record for this account. It is already public. It is used as the topic admin key and submit key. No private key is involved.</p>
+</div>
+
+<p id="status" class="muted" aria-live="polite"></p>
+<p id="errorBox" class="err" style="display:none" aria-live="polite"></p>
+
+<h2>Step 1: Create the topic</h2>
+
+<p>Exactly what will be created:</p>
+<ul>
+<li><strong>Memo:</strong> <code>Enoch verification records</code></li>
+<li><strong>Admin key:</strong> the connected account public key (shown above after connecting)</li>
+<li><strong>Submit key:</strong> the connected account public key (same key)</li>
+<li><strong>Custom fees:</strong> none</li>
+<li><strong>Expected cost:</strong> about $0.01</li>
+</ul>
+<p>Only the connected account key can update the topic or submit messages to it. Anyone can read the topic.</p>
+<p><button id="createTopicBtn" disabled>Create topic</button></p>
+<div id="topicResult" class="ok" style="display:none">
+<p class="detail"><strong>Topic ID:</strong> <span id="topicId"></span></p>
+<p class="detail"><strong>Transaction ID:</strong> <span id="topicTxId"></span></p>
+<p class="detail"><strong>Fee charged:</strong> <span id="topicFee"></span></p>
+<p class="detail"><a id="topicHashScan" href="#" target="_blank" rel="noopener">View the topic on HashScan</a></p>
+</div>
+
+<h2>Step 2: Submit the message</h2>
+
+<p>Exactly what will be submitted to the topic. Read it in full before approving. This is the proposed text. If you have not approved this message, do not tap the button.</p>
+<pre id="messageText">{"spec":"1.1","digest":"01ae732d5bf4476f8159d2a02e23c58a6f33044d0dae2d0bd8a605c057187284","envelope":"record_id=EN-2026-0001;event=document.captured;file=engagement-letter.pdf;captured_at=2026-10-15T21:42:18Z","domain":"enoch.goodcode.ca"}</pre>
+<ul>
+<li><strong>Topic:</strong> <span id="submitTopicId">not created yet</span></li>
+<li><strong>Expected cost:</strong> about $0.0001</li>
+</ul>
+<p>The message contains no name, no email address, no account ID, and no key material. It contains the spec version, the digest, the record envelope, and the domain enoch.goodcode.ca. The topic creation transaction itself shows the payer account ID on the ledger, as every Hedera transaction does.</p>
+<p><button id="submitMsgBtn" disabled>Submit message</button></p>
+<div id="msgResult" class="ok" style="display:none">
+<p class="detail"><strong>Sequence number:</strong> <span id="seqNum"></span></p>
+<p class="detail"><strong>Consensus timestamp:</strong> <span id="consensusTs"></span></p>
+<p class="detail"><strong>Transaction ID:</strong> <span id="msgTxId"></span></p>
+<p class="detail"><strong>Fee charged:</strong> <span id="msgFee"></span></p>
+<p class="detail"><a id="msgHashScan" href="#" target="_blank" rel="noopener">View the topic on HashScan</a></p>
+</div>
+
+<h2>What this page never does</h2>
+<ul>
+<li>Never asks for, stores, or sends a seed phrase or a private key.</li>
+<li>Never submits a transaction on its own. Each step needs your tap here and your approval in HashPack.</li>
+<li>Never talks to a server of ours. The only network calls are to WalletConnect (to reach your wallet), to the public Hedera mirror node (to read the account public key and to confirm results), and to Hedera consensus nodes through your wallet signing session.</li>
+<li>Never uses Mainnet unless you pick Mainnet above.</li>
+</ul>
+
+<script src="dist/hashinal-wc.umd.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
