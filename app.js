@@ -247,11 +247,12 @@ async function createTopic() {
       .setTopicMemo(TOPIC_MEMO)
       .setAdminKey(accountPublicKey)
       .setSubmitKey(accountPublicKey);
-    tx.setTransactionId(
-      HashgraphSDK.TransactionId.generate(HashgraphSDK.AccountId.fromString(accountId))
-    );
-    var txIdString = tx.transactionId.toString();
+    // Do not set the transaction ID here. The wallet signer sets it during
+    // freezeWithSigner, and setting it first locks the ID list, so the
+    // signer then throws "list is locked" before any request reaches the
+    // wallet. The ID is read from the transaction after execution instead.
     var receipt = await sdk.executeTransaction(tx);
+    var txIdString = tx.transactionId ? tx.transactionId.toString() : "not shown yet, check HashScan";
     if (!receipt || !receipt.topicId) throw new Error("No topic ID came back in the receipt.");
     topicId = receipt.topicId.toString();
     var fee = await fetchChargedFee(txIdString);
@@ -283,11 +284,11 @@ async function submitMessage() {
     var tx = new HashgraphSDK.TopicMessageSubmitTransaction()
       .setTopicId(HashgraphSDK.TopicId.fromString(topicId))
       .setMessage(MESSAGE);
-    tx.setTransactionId(
-      HashgraphSDK.TransactionId.generate(HashgraphSDK.AccountId.fromString(accountId))
-    );
-    var txIdString = tx.transactionId.toString();
+    // Do not set the transaction ID here, for the same reason as in
+    // createTopic: the wallet signer sets it, and setting it first makes the
+    // signer throw "list is locked".
     var receipt = await sdk.executeTransaction(tx);
+    var txIdString = tx.transactionId ? tx.transactionId.toString() : "not shown yet, check HashScan";
     var seq = receipt && receipt.topicSequenceNumber ? receipt.topicSequenceNumber.toString() : null;
     var consensusTs = null;
     try {
