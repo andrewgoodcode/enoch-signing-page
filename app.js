@@ -71,6 +71,49 @@ var LedgerId = HashgraphSDK.LedgerId;
   TR.fromJSON = patched;
 })();
 
+// The wallet reply is parsed by a SECOND copy of the same parser, inside
+// the bundled wallet-connect layer (the @hiero-ledger/sdk copy), not the
+// window copy patched above, so patching fromJSON alone does not reach
+// it. Instead, wrap the connected signer's request method once: when the
+// wallet answers hedera_signAndExecuteTransaction, normalize its node ID
+// and transaction ID to strings before the parser sees them. All other
+// requests pass through untouched. Best effort: if the signer cannot be
+// found, the transaction continues and any error surfaces normally.
+function patchSignerRequest() {
+  try {
+    var connector = sdk.dAppConnector;
+    if (!connector || !connector.signers) return;
+    for (var i = 0; i < connector.signers.length; i++) {
+      var signer = connector.signers[i];
+      if (!signer || !signer.getAccountId) continue;
+      if (signer.getAccountId().toString() !== accountId) continue;
+      if (!signer.request || signer.request.__enochPatched) continue;
+      var origRequest = signer.request.bind(signer);
+      var wrapped = async function (req) {
+        var res = await origRequest(req);
+        if (req && req.method === "hedera_signAndExecuteTransaction" && res && typeof res === "object") {
+          var copy = {};
+          for (var k in res) copy[k] = res[k];
+          if (typeof copy.nodeId === "number") {
+            copy.nodeId = "0.0." + copy.nodeId;
+          } else if (copy.nodeId && typeof copy.nodeId === "object" && typeof copy.nodeId.num !== "undefined") {
+            copy.nodeId = (copy.nodeId.shard || 0) + "." + (copy.nodeId.realm || 0) + "." + copy.nodeId.num;
+          }
+          if (copy.transactionId && typeof copy.transactionId !== "string") {
+            copy.transactionId = String(copy.transactionId);
+          }
+          res = copy;
+        }
+        return res;
+      };
+      wrapped.__enochPatched = true;
+      signer.request = wrapped;
+    }
+  } catch (e) {
+    // Patching is best effort. The transaction continues below.
+  }
+}
+
 var MESSAGE =
   '{"spec":"1.1","digest":"01ae732d5bf4476f8159d2a02e23c58a6f33044d0dae2d0bd8a605c057187284","envelope":"record_id=EN-2026-0001;event=document.captured;file=engagement-letter.pdf;captured_at=2026-10-15T21:42:18Z","domain":"enoch.goodcode.ca"}';
 var TOPIC_MEMO = "Enoch verification records";
@@ -279,6 +322,7 @@ async function createTopic() {
   setStatus("Creating the topic. Approve it in HashPack.");
   $("createTopicBtn").disabled = true;
   try {
+    patchSignerRequest();
     // A previous attempt may have created the topic and then failed while
     // parsing the wallet's reply, so check the mirror node first. If a
     // topic with this exact memo already exists for this account, use it
@@ -367,6 +411,7 @@ async function submitMessage() {
   setStatus("Submitting the message. Approve it in HashPack.");
   $("submitMsgBtn").disabled = true;
   try {
+    patchSignerRequest();
     var tx = new HashgraphSDK.TopicMessageSubmitTransaction()
       .setTopicId(HashgraphSDK.TopicId.fromString(topicId))
       .setMessage(MESSAGE);
