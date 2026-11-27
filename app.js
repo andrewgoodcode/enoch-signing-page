@@ -82,12 +82,14 @@ var LedgerId = HashgraphSDK.LedgerId;
 function patchSignerRequest() {
   try {
     var connector = sdk.dAppConnector;
-    if (!connector || !connector.signers) return;
+    if (!connector) return "no wallet connector on the page";
+    if (!connector.signers || connector.signers.length === 0) return "no signer found";
     for (var i = 0; i < connector.signers.length; i++) {
       var signer = connector.signers[i];
       if (!signer || !signer.getAccountId) continue;
       if (signer.getAccountId().toString() !== accountId) continue;
-      if (!signer.request || signer.request.__enochPatched) continue;
+      if (!signer.request) return "signer has no request method";
+      if (signer.request.__enochPatched) return "reply fix already on";
       var origRequest = signer.request.bind(signer);
       var wrapped = async function (req) {
         var res = await origRequest(req);
@@ -108,10 +110,23 @@ function patchSignerRequest() {
       };
       wrapped.__enochPatched = true;
       signer.request = wrapped;
+      return "reply fix on";
     }
+    return "no signer matched this account";
   } catch (e) {
-    // Patching is best effort. The transaction continues below.
+    return "reply fix failed: " + (e && e.message ? e.message : String(e));
   }
+}
+
+// Short diagnostic shown with any failure, so the exact step that threw
+// is visible on the page instead of only the error text.
+function errorDetail(stage, patchState, e) {
+  var text = "Failed at " + stage + ". Reply fix: " + patchState + ". Error: " + (e && e.message ? e.message : String(e));
+  if (e && e.stack) {
+    var stack = String(e.stack).replace(/\n/g, " | ").slice(0, 400);
+    text += " Stack: " + stack;
+  }
+  return text;
 }
 
 var MESSAGE =
@@ -321,8 +336,12 @@ async function createTopic() {
   }
   setStatus("Creating the topic. Approve it in HashPack.");
   $("createTopicBtn").disabled = true;
+  var stage = "starting";
+  var patchState = "not tried yet";
   try {
-    patchSignerRequest();
+    stage = "applying the wallet reply fix";
+    patchState = patchSignerRequest();
+    stage = "checking the public record for an existing topic";
     // A previous attempt may have created the topic and then failed while
     // parsing the wallet's reply, so check the mirror node first. If a
     // topic with this exact memo already exists for this account, use it
@@ -373,6 +392,7 @@ async function createTopic() {
     } catch (e4) {
       // Mirror lookup is best effort. Creation continues below.
     }
+    stage = "building the transaction";
     var tx = new HashgraphSDK.TopicCreateTransaction()
       .setTopicMemo(TOPIC_MEMO)
       .setAdminKey(accountPublicKey)
@@ -381,10 +401,13 @@ async function createTopic() {
     // freezeWithSigner, and setting it first locks the ID list, so the
     // signer then throws "list is locked" before any request reaches the
     // wallet. The ID is read from the transaction after execution instead.
+    stage = "signing and executing in HashPack (approve it there)";
     var receipt = await sdk.executeTransaction(tx);
+    stage = "reading the receipt";
     var txIdString = tx.transactionId ? tx.transactionId.toString() : "not shown yet, check HashScan";
     if (!receipt || !receipt.topicId) throw new Error("No topic ID came back in the receipt.");
     topicId = receipt.topicId.toString();
+    stage = "reading the fee";
     var fee = await fetchChargedFee(txIdString);
     $("topicId").textContent = topicId;
     $("topicTxId").textContent = txIdString;
@@ -397,7 +420,7 @@ async function createTopic() {
     setStatus("Topic created: " + topicId + ". Check it on HashScan, then run Step 2.");
   } catch (e) {
     $("createTopicBtn").disabled = false;
-    showError("Topic creation failed: " + (e && e.message ? e.message : String(e)));
+    showError("Topic creation failed. " + errorDetail(stage, patchState, e));
     setStatus("");
   }
 }
@@ -410,15 +433,21 @@ async function submitMessage() {
   }
   setStatus("Submitting the message. Approve it in HashPack.");
   $("submitMsgBtn").disabled = true;
+  var stage = "starting";
+  var patchState = "not tried yet";
   try {
-    patchSignerRequest();
+    stage = "applying the wallet reply fix";
+    patchState = patchSignerRequest();
+    stage = "building the transaction";
     var tx = new HashgraphSDK.TopicMessageSubmitTransaction()
       .setTopicId(HashgraphSDK.TopicId.fromString(topicId))
       .setMessage(MESSAGE);
     // Do not set the transaction ID here, for the same reason as in
     // createTopic: the wallet signer sets it, and setting it first makes the
     // signer throw "list is locked".
+    stage = "signing and executing in HashPack (approve it there)";
     var receipt = await sdk.executeTransaction(tx);
+    stage = "reading the receipt";
     var txIdString = tx.transactionId ? tx.transactionId.toString() : "not shown yet, check HashScan";
     var seq = receipt && receipt.topicSequenceNumber ? receipt.topicSequenceNumber.toString() : null;
     var consensusTs = null;
@@ -464,7 +493,7 @@ async function submitMessage() {
     setStatus("Message submitted to topic " + topicId + ". Verify it on HashScan.");
   } catch (e) {
     $("submitMsgBtn").disabled = false;
-    showError("Message submit failed: " + (e && e.message ? e.message : String(e)));
+    showError("Message submit failed. " + errorDetail(stage, patchState, e));
     setStatus("");
   }
 }
