@@ -35,6 +35,42 @@ var sdk = window.HashinalsWalletConnectSDK;
 var HashgraphSDK = window.HashgraphSDK;
 var LedgerId = HashgraphSDK.LedgerId;
 
+// HashPack returns the node ID in the executed-transaction reply as a
+// number (for example 3) instead of the string "0.0.3". The SDK's
+// TransactionResponse.fromJSON passes it straight to
+// AccountId.fromString, which calls .startsWith on it and throws
+// "startsWith is not a function". That throw happens after the wallet
+// has already signed and executed, so a success looks like a failure.
+// Normalize the reply first, so a success reply parses. Reproduced
+// locally Nov 27, 2026: fromJSON with a numeric nodeId throws exactly
+// "startsWith is not a function", with a string nodeId it parses.
+(function patchTransactionResponseFromJSON() {
+  var TR = HashgraphSDK.TransactionResponse;
+  if (!TR || !TR.fromJSON || TR.fromJSON.__enochPatched) return;
+  var original = TR.fromJSON;
+  var patched = function (json) {
+    if (json && typeof json === "object") {
+      var copy = {};
+      for (var k in json) copy[k] = json[k];
+      if (typeof copy.nodeId === "number") {
+        copy.nodeId = "0.0." + copy.nodeId;
+      } else if (copy.nodeId && typeof copy.nodeId === "object") {
+        var n = copy.nodeId;
+        if (typeof n.num !== "undefined") {
+          copy.nodeId = (n.shard || 0) + "." + (n.realm || 0) + "." + n.num;
+        }
+      }
+      if (copy.transactionId && typeof copy.transactionId !== "string") {
+        copy.transactionId = String(copy.transactionId);
+      }
+      json = copy;
+    }
+    return original.call(TR, json);
+  };
+  patched.__enochPatched = true;
+  TR.fromJSON = patched;
+})();
+
 var MESSAGE =
   '{"spec":"1.1","digest":"01ae732d5bf4476f8159d2a02e23c58a6f33044d0dae2d0bd8a605c057187284","envelope":"record_id=EN-2026-0001;event=document.captured;file=engagement-letter.pdf;captured_at=2026-10-15T21:42:18Z","domain":"enoch.goodcode.ca"}';
 var TOPIC_MEMO = "Enoch verification records";
@@ -243,6 +279,56 @@ async function createTopic() {
   setStatus("Creating the topic. Approve it in HashPack.");
   $("createTopicBtn").disabled = true;
   try {
+    // A previous attempt may have created the topic and then failed while
+    // parsing the wallet's reply, so check the mirror node first. If a
+    // topic with this exact memo already exists for this account, use it
+    // instead of paying to create a second one. A failed lookup does not
+    // block creation.
+    try {
+      var hosts = MIRRORS[network];
+      for (var h = 0; h < hosts.length; h++) {
+        try {
+          var listRes = await fetch(
+            hosts[h] + "/api/v1/topics?account.id=" + accountId + "&limit=100"
+          );
+          if (!listRes.ok) continue;
+          var listData = await listRes.json();
+          var found = null;
+          var foundTs = "";
+          var topics = listData.topics || [];
+          for (var t = 0; t < topics.length; t++) {
+            var memo = "";
+            try {
+              memo = atob(topics[t].memo_base64 || "");
+            } catch (e2) {
+              memo = "";
+            }
+            if (memo === TOPIC_MEMO && (topics[t].created_timestamp || "") >= foundTs) {
+              found = topics[t];
+              foundTs = topics[t].created_timestamp || "";
+            }
+          }
+          if (found) {
+            topicId = found.topic_id;
+            $("topicId").textContent = topicId;
+            $("topicTxId").textContent = "created in an earlier attempt, see HashScan";
+            $("topicFee").textContent = "already paid";
+            var foundLink = HASHSCAN[network] + "/topic/" + topicId;
+            $("topicHashScan").href = foundLink;
+            $("topicResult").style.display = "block";
+            $("submitTopicId").textContent = topicId;
+            $("submitMsgBtn").disabled = false;
+            setStatus("Topic already exists: " + topicId + ". No new topic was created. Check it on HashScan, then run Step 2.");
+            return;
+          }
+          break;
+        } catch (e3) {
+          // Try the next mirror host.
+        }
+      }
+    } catch (e4) {
+      // Mirror lookup is best effort. Creation continues below.
+    }
     var tx = new HashgraphSDK.TopicCreateTransaction()
       .setTopicMemo(TOPIC_MEMO)
       .setAdminKey(accountPublicKey)
