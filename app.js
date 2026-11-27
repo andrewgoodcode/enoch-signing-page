@@ -296,6 +296,7 @@ async function connectWallet() {
     $("connectBtn").disabled = true;
     $("disconnectBtn").disabled = false;
     $("createTopicBtn").disabled = false;
+    $("loadTopicBtn").disabled = false;
     setNetworkLocked(true);
     setStatus("Connected. Check the account and public key above, then run Step 1.");
   } catch (e) {
@@ -323,9 +324,61 @@ async function disconnectWallet() {
   $("connectBtn").disabled = false;
   $("disconnectBtn").disabled = true;
   $("createTopicBtn").disabled = true;
+  $("loadTopicBtn").disabled = true;
   $("submitMsgBtn").disabled = true;
   setNetworkLocked(false);
   setStatus("Disconnected.");
+}
+
+async function loadExistingTopic() {
+  clearError();
+  if (!accountId || !accountPublicKey) {
+    showError("Connect a wallet first.");
+    return;
+  }
+  var raw = ($("existingTopicId").value || "").trim();
+  if (!/^0\.0\.\d+$/.test(raw)) {
+    showError("That is not a topic ID. It looks like 0.0.1234567.");
+    return;
+  }
+  setStatus("Checking the topic on the public record.");
+  $("loadTopicBtn").disabled = true;
+  var stage = "loading the existing topic";
+  var patchState = "not tried yet";
+  try {
+    var hosts = MIRRORS[network];
+    var rec = null;
+    var lastErr = null;
+    for (var i = 0; i < hosts.length; i++) {
+      try {
+        var res = await fetch("https://" + hosts[i] + "/api/v1/topics/" + raw);
+        if (!res.ok) throw new Error("Mirror node returned " + res.status + ".");
+        rec = await res.json();
+        break;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (!rec) throw new Error("Could not read the topic from the public record. " + (lastErr ? lastErr.message : ""));
+    if (rec.deleted) throw new Error("That topic is deleted.");
+    if (rec.memo !== TOPIC_MEMO) throw new Error("That topic's memo is \"" + (rec.memo || "") + "\", not \"" + TOPIC_MEMO + "\". It is not this project's topic.");
+    var key = (rec.submit_key && rec.submit_key.key) || "";
+    if (key !== accountPublicKeyDer) throw new Error("That topic's submit key is not this account's public key, so this account cannot submit messages to it.");
+    topicId = rec.topic_id;
+    $("topicId").textContent = topicId;
+    $("topicTxId").textContent = "created in an earlier attempt, see HashScan";
+    $("topicFee").textContent = "already paid";
+    var link = HASHSCAN[network] + "/topic/" + topicId;
+    $("topicHashScan").href = link;
+    $("topicResult").style.display = "block";
+    $("submitTopicId").textContent = topicId;
+    $("submitMsgBtn").disabled = false;
+    setStatus("Topic loaded: " + topicId + ". No new topic was created. Check it on HashScan, then run Step 2.");
+  } catch (e) {
+    $("loadTopicBtn").disabled = false;
+    showError("Loading the topic failed. " + errorDetail(stage, patchState, e));
+    setStatus("");
+  }
 }
 
 async function createTopic() {
@@ -527,6 +580,7 @@ function init() {
   $("connectBtn").addEventListener("click", connectWallet);
   $("disconnectBtn").addEventListener("click", disconnectWallet);
   $("createTopicBtn").addEventListener("click", createTopic);
+  $("loadTopicBtn").addEventListener("click", loadExistingTopic);
   $("submitMsgBtn").addEventListener("click", submitMessage);
 }
 

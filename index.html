@@ -72,10 +72,12 @@
 <li><strong>Admin key:</strong> the connected account public key (shown above after connecting)</li>
 <li><strong>Submit key:</strong> the connected account public key (same key)</li>
 <li><strong>Custom fees:</strong> none</li>
-<li><strong>Expected cost:</strong> about $0.01</li>
+<li><strong>Expected cost:</strong> about $0.03. The mainnet topic cost 0.5468 HBAR, more than the $0.01 the docs quote, so the estimate here is the measured one.</li>
 </ul>
 <p>Only the connected account key can update the topic or submit messages to it. Anyone can read the topic.</p>
 <p><button id="createTopicBtn" disabled>Create topic</button></p>
+<p>Already have a topic? If the page was closed after a topic was created, paste its ID here instead of creating a new one. Loading it costs nothing and creates nothing.</p>
+<p><input id="existingTopicId" type="text" inputmode="numeric" autocomplete="off" placeholder="0.0.1234567" style="width:14em" aria-label="Existing topic ID"> <button id="loadTopicBtn" disabled>Use this topic</button></p>
 <div id="topicResult" class="ok" style="display:none">
 <p class="detail"><strong>Topic ID:</strong> <span id="topicId"></span></p>
 <p class="detail"><strong>Transaction ID:</strong> <span id="topicTxId"></span></p>
@@ -89,7 +91,7 @@
 <pre id="messageText">{"spec":"1.1","digest":"01ae732d5bf4476f8159d2a02e23c58a6f33044d0dae2d0bd8a605c057187284","envelope":"record_id=EN-2026-0001;event=document.captured;file=engagement-letter.pdf;captured_at=2026-10-15T21:42:18Z","domain":"enoch.goodcode.ca"}</pre>
 <ul>
 <li><strong>Topic:</strong> <span id="submitTopicId">not created yet</span></li>
-<li><strong>Expected cost:</strong> about $0.0001</li>
+<li><strong>Expected cost:</strong> about $0.0003. The testnet message cost 0.0048 HBAR.</li>
 </ul>
 <p>The message contains no name, no email address, no account ID, and no key material. It contains the spec version, the digest, the record envelope, and the domain enoch.goodcode.ca. The topic creation transaction itself shows the payer account ID on the ledger, as every Hedera transaction does.</p>
 <p><button id="submitMsgBtn" disabled>Submit message</button></p>
@@ -110,7 +112,7 @@
 </ul>
 
 <script src="dist/hashinal-wc.umd.js"></script>
-<script src="app.js?v=20261127f"></script>
-<p style="color:#666;font-size:12px;">Page version 20261127f. If this line says an older version, your browser is showing a cached copy, close the tab and open the link fresh.</p>
+<script src="app.js?v=20261127g"></script>
+<p style="color:#666;font-size:12px;">Page version 20261127g. If this line says an older version, your browser is showing a cached copy, close the tab and open the link fresh.</p>
 </body>
 </html>
